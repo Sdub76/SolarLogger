@@ -59,9 +59,9 @@ void setup() {
 
     EEPROM.get(index,SolarData);
     Serial.print(index);
-    Serial.print("\t");
+    Serial.print(",");
     Serial.print(SolarData.time);
-    Serial.print("\t");
+    Serial.print(",");
     Serial.println(SolarData.voltage);
 
     index += sizeof(SolarData);
