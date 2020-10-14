@@ -24,6 +24,7 @@
  (And J�r�me's name generates a "unrecognized characters" compiler warning - ignore it.)
 */
 
+#include <EEPROM.h>
 
 
 #if defined(ARDUINO) && ARDUINO >= 100
@@ -45,8 +46,13 @@ void setup()
 		Serial.print(".");
 	Serial.println("\nemonTX Internal Voltage Calibration"); 
 	Serial.println("OpenEnergyMonitor.org");
+  
+  Serial.print("EEPROM value: ");
+  long temp = EEPROM.get(0,temp);
+  Serial.println(temp);
 
     Serial.println("\nInstructions:\nMeasure the 3.3 V supply with your multimeter at the + and - \"Batt\" pads and enter now the voltage you measure.\n(You can repeat this as often as you wish.)");
+    
 
 
 }
@@ -87,7 +93,14 @@ void loop()
 			Serial.print(" mV.");
 			if (RefConstant / Vref != Vs * 1000)
 				Serial.print(" The difference is due to integer rounding.");
-			
+
+      EEPROM.put(0,RefConstant);
+      long temp;
+      EEPROM.get(0,temp);
+      Serial.print("\nThe following value is stored in EEPROM: ");
+      Serial.println(temp);
+      
+      
 			if (RefConstant > 1228800L || RefConstant < 1024000)
 				Serial.print("\nThe normal range should be 1024000L - 1228800L");
 			Serial.println("\n");

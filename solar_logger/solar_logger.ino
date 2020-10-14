@@ -15,7 +15,7 @@
 
 //============ CONFIGURATION SETTINGS ========================
 #define ECHO_TO_SERIAL 
-#define SampleIntervalMinutes 10  // Options: 1,2,3,4,5,6,10,12,15,20,30 ONLY (must be a divisor of 60)
+#define SampleIntervalMinutes 1  // Options: 1,2,3,4,5,6,10,12,15,20,30 ONLY (must be a divisor of 60)
                                   // number of minutes the loggers sleeps between each sensor reading
 
 //============ RTC CONFIGURATION =============================
@@ -38,6 +38,7 @@ int integerBuffer = 9999;    // for temp-swapping ADC readings
 float floatbuffer = 9999.9;  // for temporary float calculations
 int analogPinReading = 0;
 int BatteryReading = 0;
+long InternalReferenceConstant = 1126400;  // Nominal value in case EEPROM is empty
 
 //============ EEPROM MAP ==========================
 // 0000 - int(32b) - InternalReferenceConstant
@@ -52,18 +53,13 @@ int BatteryReading = 0;
 // ---
 // 1014 - EE_addr(64b) - Reading 127
 
-int EE_addr = EE_RDATA_START; //initial address 
+int EE_addr = EE_RDATA_START; // assume empty EEPROM
 struct EE_reading {
   uint32_t time;
   float voltage;
 };
 EE_reading SolarData;
 
-#define InternalReferenceConstant 1126400L  //used for reading the rail voltage reading
-// The "default" value of 1126400L, This assumes the internal vref is perfect 1.1v (i.e. 1100mV times 1024 ADC levels is 1126400)
-// but in reality the internal ref. varies by ±10% - to make the Rail/Battery readings more accurate use the CalVref utility from OpenEnergyMonitor
-// https://github.com/openenergymonitor/emontx2/blob/master/firmware/CalVref/CalVref.ino to get the constant for your particular Arduino
-// TODO: Move to EEPROM @ EE_IRC_ADDR
 
 //======================================================================================================================
 //  *  *   *   *   *   *   SETUP   *   *   *   *   *
@@ -86,9 +82,9 @@ void setup() {
     pinMode(0,INPUT_PULLUP); //but not if we are connected to usb
     pinMode(1,INPUT_PULLUP); //then these pins are needed for RX & TX 
   #endif
-  
+
   //============ BEGIN PERIPHERALS =============================
-  #ifndef ECHO_TO_SERIAL
+  #ifdef ECHO_TO_SERIAL
     Serial.begin(9600);    // Open serial communications and wait for port to open:
   #endif
   Wire.begin();          // Start the i2c interface
@@ -100,14 +96,34 @@ void setup() {
   sprintf(TimeStamp, "%04d/%02d/%02d %02d:%02d", now.year(), now.month(), now.day(), now.hour(), now.minute());
   enableRTCAlarmsonBackupBattery(); // only needed if you cut the pin supplying power to the DS3231 chip
 
+  // Read Internal REference Constant from EEPROM 
+  // Must run CalVref sketch first to write value to EEPROM
+  long temp;
+  EEPROM.get(EE_IRC_ADDR,temp);
+  if (temp > 0) {
+    InternalReferenceConstant = temp;
+  }
+  #ifdef ECHO_TO_SERIAL  
+    Serial.print(F("Internal Ref Constant: "));
+    Serial.println(InternalReferenceConstant);
+    Serial.flush();
+  #endif
+
+  // Move reading index if non-zero value is stored in EEPROM
+  EEPROM.get(EE_RINDEX,temp);
+  if (temp > 0) {
+    EE_addr = temp;
+  }
+  #ifdef ECHO_TO_SERIAL  
+    Serial.print(F("Reading Index: "));
+    Serial.println(EE_addr);
+    Serial.flush();
+  #endif
+  
   //============ SYNC TO ALARM =============================
   //Delay logger start until alarm times are in sync with sampling intervals
   //this delay prevents a "short interval" from occuring @ the first hour rollover
   
-  #ifdef ECHO_TO_SERIAL  
-    Serial.println(F("Timesync startup delay is disabled when ECHO_TO_SERIAL enabled"));
-    Serial.flush();
-  #else   //sleep logger till alarm time is sync'd with sampling intervals
     Alarmhour = now.hour(); Alarmminute = now.minute();
     int syncdelay=Alarmminute % SampleIntervalMinutes;  // 7 % 10 = 7 because 7 / 10 < 1, e.g. 10 does not fit even once in seven. So the entire value of 7 becomes the remainder.
     syncdelay=SampleIntervalMinutes-syncdelay; // when SampleIntervalMinutes is 1, syncdelay is 1, other cases are variable
@@ -122,7 +138,6 @@ void setup() {
     LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_ON);  //this puts logger to sleep
     detachInterrupt(0); // disables the interrupt after the alarm wakes the logger
     RTC.turnOffAlarm(1); // turns off the alarm on the RTC chip
-  #endif  //#ifdef ECHO_TO_SERIAL 
 }
 
 // ========================================================================================================
@@ -130,9 +145,16 @@ void setup() {
 //========================================================================================================
 void loop() {
 
+  digitalWrite(LED_BUILTIN, HIGH);
+  
   //============ READ BATTERY VOLTAGE ======================
   //If you are running from raw battery power (with no regulator) VccBGap is the battery voltage
   BatteryReading = getRailVoltage();
+  #ifdef ECHO_TO_SERIAL
+   Serial.print("Battery Voltage:");  //(optional) debugging message
+   Serial.println(BatteryReading);
+   Serial.flush();
+  #endif
 
   //============ READ RTC TIME ======================
   DateTime now = RTC.now(); // reads time from the RTC
@@ -141,7 +163,8 @@ void loop() {
   //loads the time into a string variable - don’t record seconds in the time stamp because the interrupt to time reading interval is <1s, so seconds are always ’00’  
   #ifdef ECHO_TO_SERIAL
    Serial.print("System taking a new reading at:");  //(optional) debugging message
-   Serial.println(TimeStamp);Serial.flush();
+   Serial.println(TimeStamp);
+   Serial.flush();
   #endif
 
   //============ READ RTC TEMP ======================
@@ -238,6 +261,7 @@ void loop() {
   // Enable interrupt on pin2 & attach it to rtcISR function:
   attachInterrupt(0, rtcISR, LOW);
   // Enter power down state with ADC module disabled to save power:
+  digitalWrite(LED_BUILTIN, LOW);
   LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_ON);
   //processor starts HERE AFTER THE RTC ALARM WAKES IT UP
   detachInterrupt(0); // immediately disable the interrupt on waking
