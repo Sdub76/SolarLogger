@@ -1,8 +1,21 @@
-//Heavily leveraged from https://github.com/EKMallon/ProMiniDatalogger-BasicStarterSketch
-#include <Wire.h>
-#include <EEPROM.h>
+// Science Fair 2020-2021 Solar Data Logger
+//
+// HW ideas from https://thecavepearlproject.org/2019/02/21/easy-1-hour-pro-mini-classroom-datalogger-build-update-feb-2019/
+// SW ideas from https://github.com/EKMallon/ProMiniDatalogger-BasicStarterSketch
+//
+// Step 1 - Run SetTime sketch to initialize RTC (https://github.com/EKMallon/Utilities)
+// Step 2 - Run CalVref sketch to calibrate ADC (https://github.com/openenergymonitor/emontx2/tree/master/firmware/CalVref)
+// Step 3 - Run this data logger sketch to record data to EEPROM
+// Step 4 - Run eeprom_datadump sketch to extract EEPROM data to CSV format
+// Step 5 - Run eeprom_clear sketch to clear EEPROM (TODO)
+//  TODO: Integrate SetTime,CalVref,datadump,clear sketches into utility sketch with selection menu
+
+#include <Wire.h>       // Standard I2C library
+#include <EEPROM.h>     // Standard EEPROM library
+#include <extEEPROM.h>  // https://github.com/PaoloP74/extEEPROM
 #include <RTClib.h>     // https://github.com/MrAlvin/RTClib
 #include <LowPower.h>   // https://github.com/rocketscream/Low-Power
+
 
 //============ HARDWARE DEFINITIONS ==========================
 #define SOLAR_ADC_PIN A0    //for analog pin reading
@@ -59,6 +72,8 @@ struct EE_reading {
   float voltage;
 };
 EE_reading SolarData;
+
+AT24C256 mem;
 
 
 //======================================================================================================================
