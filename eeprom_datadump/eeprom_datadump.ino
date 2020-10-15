@@ -6,7 +6,7 @@
 // 0004 - int(16b) - Reading Index
 #define EE_RINDEX       4
 // 0008 - EE_addr(64b) - Reading 1
-#define EE_RDATA_START  6 // change to 8 
+#define EE_RDATA_START  8 
 // 0016 - EE_addr(64b) - Reading 2
 // 0024 - EE_addr(64b) - Reading 3
 // 0032 - EE_addr(64b) - Reading 4
@@ -39,8 +39,8 @@ void setup() {
   if (EE_addr == 0) {EE_addr = EE_RDATA_START;} // Protect against empty EEPROM
   
   // Iterate from stored index to end of EEPROM
-  int index = EE_addr; // Back up one 
-  while ((index + sizeof(SolarData)) <= (EEPROM.length()) {
+  int index = EE_addr; 
+  while ((index + sizeof(SolarData) -1) <= (EEPROM.length())) {
 
     EEPROM.get(index,SolarData);
     Serial.print(index);

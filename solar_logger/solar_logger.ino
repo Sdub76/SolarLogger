@@ -14,8 +14,8 @@
 
 
 //============ CONFIGURATION SETTINGS ========================
-#define ECHO_TO_SERIAL 
-#define SampleIntervalMinutes 1  // Options: 1,2,3,4,5,6,10,12,15,20,30 ONLY (must be a divisor of 60)
+// #define ECHO_TO_SERIAL 
+#define SampleIntervalMinutes 10  // Options: 1,2,3,4,5,6,10,12,15,20,30 ONLY (must be a divisor of 60)
                                   // number of minutes the loggers sleeps between each sensor reading
 
 //============ RTC CONFIGURATION =============================
@@ -45,13 +45,13 @@ long InternalReferenceConstant = 1126400;  // Nominal value in case EEPROM is em
 #define EE_IRC_ADDR     0
 // 0004 - int(16b) - Reading Index
 #define EE_RINDEX       4
-// 0006 - EE_addr(64b) - Reading 1
-#define EE_RDATA_START  6
-// 0014 - EE_addr(64b) - Reading 2
-// 0022 - EE_addr(64b) - Reading 3
-// 0030 - EE_addr(64b) - Reading 4
+// 0008 - EE_addr(64b) - Reading 1
+#define EE_RDATA_START  8
+// 0016 - EE_addr(64b) - Reading 2
+// 0024 - EE_addr(64b) - Reading 3
+// 0032 - EE_addr(64b) - Reading 4
 // ---
-// 1014 - EE_addr(64b) - Reading 127
+// 1016 - EE_addr(64b) - Reading 127
 
 int EE_addr = EE_RDATA_START; // assume empty EEPROM
 struct EE_reading {
