@@ -31,7 +31,9 @@
 #define SampleIntervalMinutes 10  // Options: 1,2,3,4,5,6,10,12,15,20,30 ONLY (must be a divisor of 60)
                                   // number of minutes the loggers sleeps between each sensor reading
 
+
 //============ RTC CONFIGURATION =============================
+// DS3231
 // variables for reading the RTC time & handling the D2=INT(0) alarm interrupt signal it generates
 RTC_DS3231 RTC; // creates an RTC object in the code
 #define DS3231_I2C_ADDRESS 0x68
@@ -43,6 +45,38 @@ char TimeStamp[ ] = "0000/00/00,00:00"; //16 ascii characters (without seconds b
 volatile boolean clockInterrupt = false;  //this flag is set to true when the RTC interrupt handler is executed
 float rtc_TEMP_degC;
 
+//============ External EEPROM Configuration ==========================
+// AT24C256
+#define EE_SIZE         kbits_256
+#define EE_PAGELENGTH   64
+#define EE_ADDR         0x50
+extEEPROM eep(EE_SIZE, 1, EE_PAGELENGTH, EE_ADDR);
+
+#define extEE_RDATA_START  0
+// 00000 - extEE_addr(64b) - Reading 1
+// 00008 - extEE_addr(64b) - Reading 2
+// 00016 - extEE_addr(64b) - Reading 3
+// 00024 - extEE_addr(64b) - Reading 4
+// ---
+// 32000 - extEE_addr(64b) - Reading 4000
+
+int extEE_addr = extEE_RDATA_START; // assume empty EEPROM
+struct extEE_reading {
+  uint32_t time;
+  float voltage;
+};
+extEE_reading SolarData;
+
+//============ Internal EEPROM MAP ==========================
+// 0000 - long(32b) - InternalReferenceConstant
+#define EE_IRC_ADDR     0
+// 0004 - int(16b) - Reading Index
+#define EE_RINDEX       4
+// 0008 - Empty
+// ---
+// 1024 - Empty
+
+
 //============ Global variables ==============================
 // Most are used for temporary storage during communications & calculations
 byte bytebuffer1 = 0;     // for functions that return a byte - usually comms with sensors
@@ -53,27 +87,6 @@ int analogPinReading = 0;
 int BatteryReading = 0;
 long InternalReferenceConstant = 1126400;  // Nominal value in case EEPROM is empty
 
-//============ EEPROM MAP ==========================
-// 0000 - int(32b) - InternalReferenceConstant
-#define EE_IRC_ADDR     0
-// 0004 - int(16b) - Reading Index
-#define EE_RINDEX       4
-// 0008 - EE_addr(64b) - Reading 1
-#define EE_RDATA_START  8
-// 0016 - EE_addr(64b) - Reading 2
-// 0024 - EE_addr(64b) - Reading 3
-// 0032 - EE_addr(64b) - Reading 4
-// ---
-// 1016 - EE_addr(64b) - Reading 127
-
-int EE_addr = EE_RDATA_START; // assume empty EEPROM
-struct EE_reading {
-  uint32_t time;
-  float voltage;
-};
-EE_reading SolarData;
-
-AT24C256 mem;
 
 
 //======================================================================================================================
@@ -99,11 +112,13 @@ void setup() {
   #endif
 
   //============ BEGIN PERIPHERALS =============================
+  // Serial (UART)
   #ifdef ECHO_TO_SERIAL
-    Serial.begin(9600);    // Open serial communications and wait for port to open:
+    Serial.begin(9600);
   #endif
-  Wire.begin();          // Start the i2c interface
-  RTC.begin();           // RTC initialization:
+
+  // Real-Time Clock (I2C)
+  RTC.begin();
   RTC.turnOffAlarm(1);
   clearClockTrigger();   // Function stops RTC from holding interrupt line low after power reset
   pinMode(RTC_INTERRUPT_PIN,INPUT_PULLUP);  //not needed if you have hardware pullups on SQW, most RTC modules do but some don't
@@ -111,7 +126,21 @@ void setup() {
   sprintf(TimeStamp, "%04d/%02d/%02d %02d:%02d", now.year(), now.month(), now.day(), now.hour(), now.minute());
   enableRTCAlarmsonBackupBattery(); // only needed if you cut the pin supplying power to the DS3231 chip
 
-  // Read Internal REference Constant from EEPROM 
+  // External EEPROM (I2C)
+  byte eepStatus = eep.begin();
+    if (eepStatus) {
+    #ifdef ECHO_TO_SERIAL
+      Serial.print(F("extEEPROM.begin() failed, status = "));
+      Serial.println(eepStatus);
+    #endif
+    digitalWrite(LED_BUILTIN, HIGH); // Leave red LED on if EEPROM doesn't initialize
+    while (1);  //TODO Maybe add logic to write smaller dataset to internal EE only if external EE doesn't init instead of freezing
+  } else {
+    
+  }
+
+  
+  // Read Internal Reference Constant from EEPROM 
   // Must run CalVref sketch first to write value to EEPROM
   long temp;
   EEPROM.get(EE_IRC_ADDR,temp);
@@ -127,7 +156,7 @@ void setup() {
   // Move reading index if non-zero value is stored in EEPROM
   EEPROM.get(EE_RINDEX,temp);
   if (temp > 0) {
-    EE_addr = temp;
+    extEE_addr = temp;
   }
   #ifdef ECHO_TO_SERIAL  
     Serial.print(F("Reading Index: "));
@@ -221,11 +250,12 @@ void loop() {
   // Write to EEPROM
   // Struct{Time(32b float),Voltage(32b float)}
 
-  EEPROM.put(EE_addr,SolarData);
+  byte *pdata = (byte*) &SolarData; // Need to cast data structure into byte array for EE write function
+  eep.write(extEE_addr,pdata,sizeof(SolarData));
   #ifdef ECHO_TO_SERIAL
     // Read back what was written to EEPROM
-    EE_reading temp_readback;
-    EEPROM.get(EE_addr,temp_readback);
+    extEE_reading temp_readback;
+    eep.read(extEE_addr,temp_readback, sizeof(temp_readback));
     Serial.print(F(" -> Address: "));
     Serial.print(EE_addr); 
     Serial.println(F(""));
@@ -239,10 +269,10 @@ void loop() {
   #endif
 
   // Move address pointer
-  EE_addr += sizeof(SolarData); // Move pointer by size of reading
-  EEPROM.put(EE_RINDEX,EE_addr); // Keep track of EE address in case of power failure
-  if (EE_addr > EEPROM.length()) {
-    EE_addr = EE_RDATA_START; // Wrap back to beginning when out of space
+  extEE_addr += sizeof(SolarData); // Move pointer by size of reading
+  EEPROM.put(EE_RINDEX,extEE_addr); // Keep track of EE address in case of power failure
+  if (extEE_addr > eep.length()) {
+    extEE_addr = extEE_RDATA_START; // Wrap back to beginning when out of space
   }
   
 
