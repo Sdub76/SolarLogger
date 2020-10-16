@@ -18,16 +18,12 @@
 
 
 //============ HARDWARE DEFINITIONS ==========================
-#define SOLAR_ADC_PIN A0    //for analog pin reading
-#define RXD 0
-#define TXD 1
-#define RTC_INTERRUPT_PIN 2
-#define SDA A4
-#define SCL A5
+#define SOLAR_ADC_PIN A0      // Solar cell input
+#define RTC_INTERRUPT_PIN 2   // RTC Alarm interrupt input
 
 
 //============ CONFIGURATION SETTINGS ========================
-// #define ECHO_TO_SERIAL 
+#define ECHO_TO_SERIAL 
 #define SampleIntervalMinutes 10  // Options: 1,2,3,4,5,6,10,12,15,20,30 ONLY (must be a divisor of 60)
                                   // number of minutes the loggers sleeps between each sensor reading
 
@@ -47,6 +43,7 @@ float rtc_TEMP_degC;
 
 //============ External EEPROM Configuration ==========================
 // AT24C256
+// http://ww1.microchip.com/downloads/en/devicedoc/atmel-8568-seeprom-at24c256c-datasheet.pdf
 #define EE_SIZE         kbits_256
 #define EE_PAGELENGTH   64
 #define EE_ADDR         0x50
