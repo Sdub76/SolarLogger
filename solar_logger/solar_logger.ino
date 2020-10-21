@@ -50,6 +50,8 @@ float rtc_TEMP_degC;
 extEEPROM eep(EE_SIZE, 1, EE_PAGELENGTH, EE_ADDR);
 
 #define extEE_RDATA_START  0
+// Readings every 12 minutes, 5am-9pm 
+// (16 hr/day * 5 rdg/hr * 50 days = 4000 readings) 
 // 00000 - extEE_addr(64b) - Reading 1
 // 00008 - extEE_addr(64b) - Reading 2
 // 00016 - extEE_addr(64b) - Reading 3
