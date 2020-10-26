@@ -77,8 +77,10 @@ void loop()
 			}
 			Serial.readBytes(inbuf, nChar); 
 			Vs = atof(inbuf);
-			Serial.print("You measured ");
-			Serial.print(Vs);
+      Serial.print("You measured ");
+      Serial.print(inbuf);
+      Serial.print("You measured ");
+      Serial.print(Vs);
 			Vref = readVcc();
 			Serial.print(" V.\nThat means your internal reference is ");
 			Serial.print(Vref);

@@ -11,29 +11,58 @@
 // Step 5 - Run eeprom_clear sketch to clear EEPROM (TODO)
 //  TODO: Integrate SetTime,CalVref,datadump,clear sketches into utility sketch with selection menu
 
-#include <Wire.h>                                  // Arduino I2C library
-#include <EEPROM.h>                                // Arduino Internal EEPROM library
-#include <SparkFun_External_EEPROM.h> // https://github.com/sparkfun/SparkFun_External_EEPROM_Arduino_Library
-#include <RTClib.h>                         // https://github.com/MrAlvin/RTClib
-#include <LowPower.h>                    // https://github.com/rocketscream/Low-Power
+#include <Wire.h>                      // Arduino I2C library
+#include <EEPROM.h>                    // Arduino Internal EEPROM library
+#include <SparkFun_External_EEPROM.h>  // https://github.com/sparkfun/SparkFun_External_EEPROM_Arduino_Library
+#include <RTClib.h>                    // https://github.com/MrAlvin/RTClib
+#include <LowPower.h>                  // https://github.com/rocketscream/Low-Power
 
 //============ CONFIGURATION SETTINGS ========================
-#define ECHO_TO_SERIAL
-#define SampleIntervalMinutes 1       // Options: 1,2,3,4,5,6,10,12,15,20,30 ONLY (must be a divisor of 60)
-                                      // number of minutes the loggers sleeps between each sensor reading
-#define RESET_TO_ZERO         false
+#define ECHO_TO_SERIAL                // Enable UART status messages at slight power cost (comment out for false)
+#define RESET_TO_ZERO         false   // Start back at the zero EEPROM address
+#define START_HOUR            5       // Don't record solar data before 5am box time (temp and battery are monitored 24/7)
+#define STOP_HOUR             21      // Don't record solar data after 9pm box time (temp and battery are monitored 24/7)
+#define SampleIntervalMinutes 1       // number of minutes the loggers sleeps between each sensor reading
+                                      // 1  = 68.3 hr (4.3 days @ 16 hr/day)
+                                      // 2  = 136.5 hr (8.5 days @ 16 hr/day)
+                                      // 3  = 204.8 hr (12.8 days @ 16 hr/day)
+                                      // 4  = 273.1 hr (17.1 days @ 16 hr/day)
+                                      // 5  = 341.3 hr (21.3 days @ 16 hr/day)
+                                      // 6  = 409.6 hr (25.6 days @ 16 hr/day)
+                                      // 10 = 682.7 hr (42.7 days @ 16 hr/day) 
+                                      // 12 = 819.2 hr (51.2 days @ 16 hr/day) ** Nov 1 - Dec 21
+                                      // 15 = 1024 hr (64.0 days @ 16 hr/day)
+                                      // 20 = 1365 hr (85.3 days @ 16 hr/day)
+                                      // 30 = 2048 hr (128 days @ 16 hr/day)
 
 //============ HARDWARE DEFINITIONS ==========================
-#define SOLAR_ADC_PIN A0      // Solar cell input
-#define RTC_INTERRUPT_PIN 2   // RTC Alarm interrupt input
+// Arduino Pro Mini 328p 8MHz
+// No Vreg, 10-bit ADC
+// External interrupts on pins 2,3 only
+// https://www.arduino.cc/en/uploads/Main/Arduino-Pro-Mini-schematic.pdf
+// https://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-7810-Automotive-Microcontrollers-ATmega328P_Datasheet.pdf
+#define SOLAR_ADC_PIN     A0   // Solar cell input
+#define RTC_INTERRUPT_PIN 2    // RTC Alarm interrupt input
 
 
 //============ INTERNAL EEPROM MAP ==========================
 // 0000 - long(32b) - InternalReferenceConstant
-#define EE_IRC_ADDR     0
-// 0004 - int(16b) - Reading Index
-#define EE_RINDEX       4
-// 0008 - Empty
+#define EE_IRC_ADDR       0
+// 0004 - long(32b) - Next External EEPROM Reading Index
+#define EE_RINDEX         4
+// 0008 - float(32b) - Minimum Battery Voltage Reading
+#define EE_BATT_MIN       8
+// 0012 - long(32b) - Minimum Battery Voltage Time
+#define EE_BATT_MIN_TIME 12
+// 0016 - float(32b) - Minimum Ambient Temp Reading
+#define EE_TAMB_MIN      16
+// 0020 - long(32b) - Minimum Ambient Temp Time
+#define EE_TAMB_MIN_TIME 20
+// 0024 - float(32b) - Maximum Ambient Temp Reading
+#define EE_TAMB_MAX      24
+// 0028 - long(32b) - Maximum Ambient Temp Time
+#define EE_TAMB_MAX_TIME 28
+// 0032 - Empty
 // ---
 // 1024 - Empty
 
@@ -41,22 +70,21 @@
 //============ I2C EEPROM CONFIG ============================
 // AT24C256 I2C module
 // http://ww1.microchip.com/downloads/en/devicedoc/atmel-8568-seeprom-at24c256c-datasheet.pdf
-#define EE_SIZE         32000 // Bytes
+#define EE_SIZE         32768 // Bytes
 #define EE_PAGELENGTH   64    // Bits
 #define EE_I2C_ADDRESS  0x58
 ExternalEEPROM ext_eep;
 
+//============ EXTERNAL EEPROM MAP ==========================
 #define extEE_RDATA_START  0
-// Readings every 12 minutes, 5am-9pm 
-// (16 hr/day * 5 rdg/hr * 50 days = 4000 readings) 
-// 00000 - extEE_addr(64b) - Reading 1
-// 00008 - extEE_addr(64b) - Reading 2
-// 00016 - extEE_addr(64b) - Reading 3
-// 00024 - extEE_addr(64b) - Reading 4
+// 00000 - extEE_reading(64b) - Reading 1
+// 00008 - extEE_reading(64b) - Reading 2
+// 00016 - extEE_reading(64b) - Reading 3
+// 00024 - extEE_reading(64b) - Reading 4
 // ---
-// 32000 - extEE_addr(64b) - Reading 4000
+// 32768 - extEE_reading(64b) - Reading 4096
 
-int extEE_addr = extEE_RDATA_START; // assume empty EEPROM
+long extEE_addr = extEE_RDATA_START; // assume empty EEPROM
 struct extEE_reading {
   uint32_t time;
   float voltage;
@@ -90,7 +118,9 @@ float floatbuffer = 9999.9;  // for temporary float calculations
 int analogPinReading = 0;
 int BatteryReading = 0;
 long InternalReferenceConstant = 1126400;  // Nominal value in case EEPROM is empty
-
+float batt_min = 999.0;
+float tamb_min = 999.0;
+float tamb_max = -999.0;
 
 
 //======================================================================================================================
@@ -118,8 +148,14 @@ void setup() {
   //============ BEGIN PERIPHERALS =============================
   // Serial (UART)
   #ifdef ECHO_TO_SERIAL
-    Serial.begin(115200);
+    Serial.begin(9600);
+    Serial.println(F(""));
+    Serial.println(F(""));
+    Serial.println(F(""));
+    Serial.println(F("<<< BEGIN SERIAL COMMUNICATIONS >>>"));
+    Serial.flush();
   #endif
+
 
   // Real-Time Clock (I2C)
   RTC.begin();
@@ -129,6 +165,10 @@ void setup() {
   DateTime now = RTC.now();
   sprintf(TimeStamp, "%04d/%02d/%02d %02d:%02d", now.year(), now.month(), now.day(), now.hour(), now.minute());
   enableRTCAlarmsonBackupBattery(); // only needed if you cut the pin supplying power to the DS3231 chip
+  #ifdef ECHO_TO_SERIAL
+    Serial.println(F("<<< RTC INITIALIZED >>>"));
+    Serial.flush();
+  #endif
 
   // External EEPROM (I2C)
   if (ext_eep.begin() == false) {
@@ -141,36 +181,78 @@ void setup() {
   ext_eep.setMemorySize(EE_SIZE); //In bytes. 512kbit = 64kbyte
   ext_eep.setPageSize(EE_PAGELENGTH); //In bytes. Has 128 byte page size.
   ext_eep.enablePollForWriteComplete(); //Supports I2C polling of write completion
+  #ifdef ECHO_TO_SERIAL
+    Serial.println(F("<<< EXTERNAL EEPROM INITIALIZED >>>"));
+    Serial.flush();
+  #endif
 
-  
+  #ifdef ECHO_TO_SERIAL
+    Serial.println(F("<<< READING CONFIG DATA FROM INTERNAL EEPROM >>>"));
+    Serial.flush();
+  #endif
+  long ltemp;
+  float ftemp;
   // Read Internal Reference Constant from EEPROM 
   // Must run CalVref sketch first to write value to EEPROM
-  long temp;
-  EEPROM.get(EE_IRC_ADDR,temp);
-  if (temp > 0) {
-    InternalReferenceConstant = temp;
+  EEPROM.get(EE_IRC_ADDR,ltemp);
+  if (ltemp < 1228800L && ltemp > 1024000L) {
+    InternalReferenceConstant = ltemp;
   }
   #ifdef ECHO_TO_SERIAL  
-    Serial.print(F("Internal Ref Constant: "));
+    Serial.print(F("- Internal Ref Constant: "));
     Serial.println(InternalReferenceConstant);
     Serial.flush();
   #endif
 
-  // Move reading index if non-zero value is stored in EEPROM
-  EEPROM.get(EE_RINDEX,temp);
-  if (temp > 0) {
-    extEE_addr = temp;
+  // Move start index if non-zero value is stored in EEPROM
+  if (RESET_TO_ZERO) {
+    extEE_addr = 0;
+  } else {
+    EEPROM.get(EE_RINDEX,ltemp);
+    if ((ltemp > 0) && (ltemp < EE_SIZE)) {
+      extEE_addr = ltemp;
+    }
   }
   #ifdef ECHO_TO_SERIAL  
-    Serial.print(F("Reading Index: "));
+    Serial.print(F("- Reading Index: "));
     Serial.println(extEE_addr);
     Serial.flush();
   #endif
-  
+
+  // Read Environmental extremes from EEPROM
+  EEPROM.get(EE_BATT_MIN,ftemp);
+  if ((ftemp > 0.0) && (ftemp < 4.0)) {
+    batt_min = ftemp;
+  }
+  EEPROM.get(EE_TAMB_MIN,ftemp);
+  if ((ftemp != 0.00) && (ftemp < 80.0)) {
+    tamb_min = ftemp;
+  }
+  EEPROM.get(EE_TAMB_MAX,ftemp);
+  if (ftemp > 0.0) {
+    tamb_max = ftemp;
+  }
+  #ifdef ECHO_TO_SERIAL  
+    Serial.print(F("- Battery Min: "));
+    Serial.print(batt_min);
+    Serial.println(F(" V"));
+    Serial.print(F("- Ambient Min Temp: "));
+    Serial.print(tamb_min);
+    Serial.println(F(" °F"));
+    Serial.print(F("- Ambient Max Temp: "));
+    Serial.print(tamb_max);
+    Serial.println(F(" °F"));
+    Serial.flush();
+  #endif
+
+
   //============ SYNC TO ALARM =============================
   //Delay logger start until alarm times are in sync with sampling intervals
   //this delay prevents a "short interval" from occuring @ the first hour rollover
-  
+  #ifdef ECHO_TO_SERIAL
+    Serial.println(F("<<< SYNCHRONIZING TO ALARM >>>"));
+    Serial.flush();
+  #endif
     Alarmhour = now.hour(); Alarmminute = now.minute();
     int syncdelay=Alarmminute % SampleIntervalMinutes;  // 7 % 10 = 7 because 7 / 10 < 1, e.g. 10 does not fit even once in seven. So the entire value of 7 becomes the remainder.
     syncdelay=SampleIntervalMinutes-syncdelay; // when SampleIntervalMinutes is 1, syncdelay is 1, other cases are variable
@@ -185,6 +267,12 @@ void setup() {
     LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_ON);  //this puts logger to sleep
     detachInterrupt(0); // disables the interrupt after the alarm wakes the logger
     RTC.turnOffAlarm(1); // turns off the alarm on the RTC chip
+
+  #ifdef ECHO_TO_SERIAL
+    Serial.println(F("<<< INITIALIZATION COMPLETE >>>"));
+    Serial.flush();
+  #endif
+
 }
 
 // ========================================================================================================
@@ -193,15 +281,6 @@ void setup() {
 void loop() {
 
   digitalWrite(LED_BUILTIN, HIGH);
-  
-  //============ READ BATTERY VOLTAGE ======================
-  //If you are running from raw battery power (with no regulator) VccBGap is the battery voltage
-  BatteryReading = getRailVoltage();
-  #ifdef ECHO_TO_SERIAL
-   Serial.print("Battery Voltage:");  //(optional) debugging message
-   Serial.println(BatteryReading);
-   Serial.flush();
-  #endif
 
   //============ READ RTC TIME ======================
   DateTime now = RTC.now(); // reads time from the RTC
@@ -209,7 +288,7 @@ void loop() {
   SolarData.time = now.unixtime(); // Redefine as UNIX time long int
   //loads the time into a string variable - don’t record seconds in the time stamp because the interrupt to time reading interval is <1s, so seconds are always ’00’  
   #ifdef ECHO_TO_SERIAL
-   Serial.print("System taking a new reading at:");  //(optional) debugging message
+   Serial.print("Current Time: ");
    Serial.println(TimeStamp);
    Serial.flush();
   #endif
@@ -229,54 +308,129 @@ void loop() {
   else {
     rtc_TEMP_degC = 0;  //if rtc_TEMP_degC contains zero, then you had a problem reading from the RTC!
   }
+  float rtc_TEMP_degF = rtc_TEMP_degC * 1.8 + 32.0;
   #ifdef ECHO_TO_SERIAL
-    Serial.print(F(" TEMPERATURE from RTC is: "));
-    Serial.print(rtc_TEMP_degC); 
-    Serial.println(F(" Celsius"));
+    Serial.print(F("Ambient Temp: "));
+    Serial.print(rtc_TEMP_degF); 
+    Serial.println(F(" °F"));
     Serial.flush();
   #endif
 
-  //============ READ SOLAR VOLTAGE =================
-  analogReference(DEFAULT);analogRead(SOLAR_ADC_PIN); //always throw away the first reading
-  delay(5);  //optional 5msec delay lets ADC input cap adjust if needed
-  analogPinReading = median_of_3( analogRead(SOLAR_ADC_PIN), analogRead(SOLAR_ADC_PIN), analogRead(SOLAR_ADC_PIN));
-  float SolarCellVoltage = analogPinReading/1024.0*BatteryReading; // Convert from ADC counts to Voltage
-  SolarData.voltage = SolarCellVoltage / 1000.0;
+    
+  //============ READ BATTERY VOLTAGE ======================
+  //If you are running from raw battery power (with no regulator) VccBGap is the battery voltage
+  BatteryReading = getRailVoltage();
   #ifdef ECHO_TO_SERIAL
-    Serial.print(F(" Voltage from Solar cell is: "));
-    Serial.print(SolarData.voltage); 
-    Serial.println(F(" V"));
-    Serial.flush();
+   Serial.print(F("Battery Voltage: ")); 
+   Serial.print(BatteryReading/1000.0);
+   Serial.println(F(" V"));
   #endif
 
-  //============ RECORD TO EEPROM ===================
-  // Write to EEPROM
-  // Struct{Time(32b float),Voltage(32b float)}
-
-  ext_eep.put(extEE_addr,SolarData);
-  #ifdef ECHO_TO_SERIAL
-    // Read back what was written to EEPROM
-    extEE_reading tmp;
-    ext_eep.get(extEE_addr,tmp);
-    Serial.print(F(" -> Address: "));
-    Serial.print(extEE_addr); 
-    Serial.println(F(""));
-    Serial.print(F(" -> Time: "));
-    Serial.print(tmp.time); 
-    Serial.println(F(" s"));
-    Serial.print(F(" -> Volage: "));
-    Serial.print(tmp.voltage); 
-    Serial.println(F(" V"));
+//============ RECORD ENVIRONMENTAL EXTREMES =====
+  // Don't record Battery min if it's > 4.0V because you're plugged in
+  if ((BatteryReading/1000.0 < batt_min) && (BatteryReading/1000.0 < 4.0)) { 
+    EEPROM.put(EE_BATT_MIN_TIME,SolarData.time);
+    EEPROM.put(EE_BATT_MIN,BatteryReading/1000.0);
+    EEPROM.get(EE_BATT_MIN,batt_min);
+ #ifdef ECHO_TO_SERIAL
+    Serial.print(F(" *** New Min Battery Voltage: "));
+    Serial.print(batt_min);
+    Serial.print(F(" V ("));
+    Serial.print(SolarData.time);
+    Serial.println(F(") ***"));
     Serial.flush();
-  #endif
+ #endif
+   }
+  if (rtc_TEMP_degF < tamb_min) {
+    EEPROM.put(EE_TAMB_MIN_TIME,SolarData.time);
+    EEPROM.put(EE_TAMB_MIN,rtc_TEMP_degF);
+    EEPROM.get(EE_TAMB_MIN,tamb_min);
+#ifdef ECHO_TO_SERIAL
+    Serial.print(F(" *** New Min Ambient Temp: "));
+    Serial.print(tamb_min);
+    Serial.print(F(" °F ("));
+    Serial.print(SolarData.time);
+    Serial.println(F(") ***"));
+    Serial.flush();
+ #endif
+   }
+  if (rtc_TEMP_degF > tamb_max) {
+    EEPROM.put(EE_TAMB_MAX_TIME,SolarData.time);
+    EEPROM.put(EE_TAMB_MAX,rtc_TEMP_degF);
+    EEPROM.get(EE_TAMB_MAX,tamb_max);
+ #ifdef ECHO_TO_SERIAL
+    Serial.print(F(" *** New Max Ambient Temp: "));
+    Serial.print(tamb_max);
+    Serial.print(F(" °F ("));
+    Serial.print(SolarData.time);
+    Serial.println(F(") ***"));
+    Serial.flush();
+ #endif
+   }
 
-  // Move address pointer
-  extEE_addr += sizeof(SolarData); // Move pointer by size of reading
-  EEPROM.put(EE_RINDEX,extEE_addr); // Keep track of EE address in case of power failure
-  if (extEE_addr > ext_eep.length()) {
-    extEE_addr = extEE_RDATA_START; // Wrap back to beginning when out of space
-  }
+  // Only Record Solar Data between the designated start and stop times to preserve EEPROM space
+  if ((now.hour() > START_HOUR) && (now.hour() < STOP_HOUR)) {
+    
+    //============ READ SOLAR VOLTAGE =================
+    analogReference(DEFAULT);analogRead(SOLAR_ADC_PIN); //always throw away the first reading
+    delay(5);  //optional 5msec delay lets ADC input cap adjust if needed
+    analogPinReading = median_of_3( analogRead(SOLAR_ADC_PIN), analogRead(SOLAR_ADC_PIN), analogRead(SOLAR_ADC_PIN));
+    float SolarCellVoltage = analogPinReading/1023.0*BatteryReading; // Convert from ADC counts to Voltage
+    SolarData.voltage = SolarCellVoltage / 1000.0;
+    #ifdef ECHO_TO_SERIAL
+      Serial.print(F("Solar Reading: "));
+      Serial.print(SolarData.voltage); 
+      Serial.print(F(" V ("));
+      Serial.print(analogPinReading); 
+      Serial.println(F(" ADC counts)"));
+      Serial.flush();
+    #endif
   
+    //============ RECORD TO EEPROM ===================
+    ext_eep.put(extEE_addr,SolarData);
+    #ifdef ECHO_TO_SERIAL
+      // Read back what was written to EEPROM
+      extEE_reading tmp;
+      ext_eep.get(extEE_addr,tmp);
+      Serial.print(F(" -> EEPROM Address: "));
+      Serial.print(extEE_addr); 
+      Serial.print(F(" (0x"));
+      Serial.print(extEE_addr,HEX); 
+      Serial.print(F(", Reading "));
+      Serial.print((extEE_addr - extEE_RDATA_START)/sizeof(SolarData)+1); 
+      Serial.print(F(" of "));
+      Serial.print((EE_SIZE - extEE_RDATA_START)/sizeof(SolarData)); 
+      Serial.println(F(")"));
+      Serial.print(F(" -> Time: "));
+      Serial.println(tmp.time); 
+      Serial.print(F(" -> Voltage: "));
+      Serial.println(tmp.voltage); 
+      Serial.flush();
+    #endif
+  
+    // Move address pointer
+    extEE_addr += sizeof(SolarData); // Move pointer by size of reading
+    EEPROM.put(EE_RINDEX,extEE_addr); // Keep track of EE address in case of power failure
+    // Wrap back to beginning if there's not enough space for the next reading
+    if ((extEE_addr + sizeof(SolarData)) > ext_eep.length()) {
+      extEE_addr = extEE_RDATA_START; // Wrap back to beginning when out of space
+    }
+  } else {
+    #ifdef ECHO_TO_SERIAL
+      // Read back what was written to EEPROM
+      Serial.println(F("It's nighttime... no solar data to record"));
+      Serial.print(F(" -> EEPROM Address: "));
+      Serial.print(extEE_addr); 
+      Serial.print(F(" (0x"));
+      Serial.print(extEE_addr,HEX); 
+      Serial.print(F(", Reading "));
+      Serial.print((extEE_addr - extEE_RDATA_START)/sizeof(SolarData) + 1); 
+      Serial.print(F(" of "));
+      Serial.print((EE_SIZE - extEE_RDATA_START)/sizeof(SolarData)); 
+      Serial.println(F(")"));
+      Serial.flush();
+    #endif
+   }
 
 
   //============ SET NEXT ALARM TIME ================
@@ -297,10 +451,11 @@ void loop() {
   RTC.turnOnAlarm(1);
   if (RTC.checkAlarmEnabled(1)) {
   #ifdef ECHO_TO_SERIAL
-    Serial.print(F("Alarm Enabled! Going to sleep for :"));
+    Serial.print(F("Going to sleep for "));
     Serial.print(SampleIntervalMinutes);
-    Serial.println(F(" minute(s)")); // println adds a carriage return
-    Serial.flush();//waits for buffer to empty
+    Serial.println(F(" minutes")); 
+    Serial.println(F("Good Night!")); 
+    Serial.flush();
   #endif
   }
   
@@ -319,6 +474,9 @@ void loop() {
     }
   clockInterrupt = false;   //reset the interrupt flag to false
   }
+  
+  Serial.println(F("*********************")); 
+  Serial.println(F("Good Morning!")); 
     
 }
 
@@ -404,4 +562,4 @@ int median_of_3( int a, int b, int c ){  // created by David Cary 2014-03-25
     int the_min = min( min( a, b ), c );
     int the_median = the_max ^ the_min ^ a ^ b ^ c;
     return( the_median );
-}                                        // teriminator for median_of_3
+}

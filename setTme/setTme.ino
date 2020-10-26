@@ -14,13 +14,23 @@
 #include <SPI.h>  // not used here, but needed to prevent a RTClib compile error
 #include "RTClib.h"   // library from https://github.com/MrAlvin/RTClib/
 
+#define EST 0
+#define CST -1
+#define MST -2
+#define PST -3
+
+#define TZ EST  // Adjustment to calibrate to various timezones
+
 RTC_DS1307 RTC;     // Setup an instance of DS1307 naming it RTC
 
 void setup () {
     pinMode(13, OUTPUT);
     Wire.begin(); // Start the I2C
     RTC.begin();  // Init RTC
-    RTC.adjust(DateTime(__DATE__, __TIME__));  // Time and date are set to date and time on your computer at compiletime
+    DateTime now = DateTime(__DATE__, __TIME__);
+    TimeSpan shift = 60*60*TZ;
+    DateTime local = now + shift + 7; // Add 7 seconds to account for delta between compile and download
+    RTC.adjust(local);  // Time and date are set to date and time on your computer at compiletime
 }
 
 void loop () {   //flashing led tells you the time has been set

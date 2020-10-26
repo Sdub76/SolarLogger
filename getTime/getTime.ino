@@ -56,16 +56,16 @@ void loop(void)
   Serial.println(t_second, DEC);
   //TimeStamps can be created with sprintf(CycleTimeStamp, "%04d/%02d/%02d %02d:%02d",t_year,t_month,t_day,t_hour,t_minute);
 
-  eTime = RTC_DS3231_unixtime(); // unix time takes less memory than an ascii timestamp
-  Serial.print(" since midnight 1/1/1970 = ");
-  Serial.print(eTime);  //Converting etime to Excel dates with =CELL/(60*60*24)+"1/1/1970"
-  Serial.print("s = ");
-  Serial.print(eTime / 86400L);
-  Serial.println("days"); 
-  digitalWrite(GREEN_PIN,HIGH);
-  delay(500);
-  digitalWrite(GREEN_PIN,LOW);
-  delay(500);
+//  eTime = RTC_DS3231_unixtime(); // unix time takes less memory than an ascii timestamp
+//  Serial.print(" since midnight 1/1/1970 = ");
+//  Serial.print(eTime);  //Converting etime to Excel dates with =CELL/(60*60*24)+"1/1/1970"
+//  Serial.print("s = ");
+//  Serial.print(eTime / 86400L);
+//  Serial.println("days"); 
+//  digitalWrite(GREEN_PIN,HIGH);
+//  delay(500);
+//  digitalWrite(GREEN_PIN,LOW);
+//  delay(500);
 }
 
 
