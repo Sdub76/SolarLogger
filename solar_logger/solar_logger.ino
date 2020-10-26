@@ -19,7 +19,7 @@
 
 //============ CONFIGURATION SETTINGS ========================
 #define ECHO_TO_SERIAL                // Enable UART status messages at slight power cost (comment out for false)
-#define RESET_TO_ZERO         false   // Start back at the zero EEPROM address
+#define RESET_CONFIG          false   // Start back at the zero EEPROM address
 #define START_HOUR            5       // Don't record solar data before 5am box time (temp and battery are monitored 24/7)
 #define STOP_HOUR             21      // Don't record solar data after 9pm box time (temp and battery are monitored 24/7)
 #define SampleIntervalMinutes 1       // number of minutes the loggers sleeps between each sensor reading
@@ -84,7 +84,6 @@ ExternalEEPROM ext_eep;
 // ---
 // 32768 - extEE_reading(64b) - Reading 4096
 
-long extEE_addr = extEE_RDATA_START; // assume empty EEPROM
 struct extEE_reading {
   uint32_t time;
   float voltage;
@@ -118,6 +117,7 @@ float floatbuffer = 9999.9;  // for temporary float calculations
 int analogPinReading = 0;
 int BatteryReading = 0;
 long InternalReferenceConstant = 1126400;  // Nominal value in case EEPROM is empty
+long extEE_addr = extEE_RDATA_START; // assume empty EEPROM
 float batt_min = 999.0;
 float tamb_min = 999.0;
 float tamb_max = -999.0;
@@ -204,35 +204,29 @@ void setup() {
     Serial.flush();
   #endif
 
-  // Move start index if non-zero value is stored in EEPROM
-  if (RESET_TO_ZERO) {
-    extEE_addr = 0;
-  } else {
+  // Override default config params if RESET_CONFIG is false
+  if (!RESET_CONFIG) {
     EEPROM.get(EE_RINDEX,ltemp);
     if ((ltemp > 0) && (ltemp < EE_SIZE)) {
       extEE_addr = ltemp;
+    }
+    // Read Environmental extremes from EEPROM
+    EEPROM.get(EE_BATT_MIN,ftemp);
+    if ((ftemp > 0.0) && (ftemp < 4.0)) {
+      batt_min = ftemp;
+    }
+    EEPROM.get(EE_TAMB_MIN,ftemp);
+    if ((ftemp != 0.00) && (ftemp < 80.0)) {
+      tamb_min = ftemp;
+    }
+    EEPROM.get(EE_TAMB_MAX,ftemp);
+    if (ftemp > 0.0) {
+      tamb_max = ftemp;
     }
   }
   #ifdef ECHO_TO_SERIAL  
     Serial.print(F("- Reading Index: "));
     Serial.println(extEE_addr);
-    Serial.flush();
-  #endif
-
-  // Read Environmental extremes from EEPROM
-  EEPROM.get(EE_BATT_MIN,ftemp);
-  if ((ftemp > 0.0) && (ftemp < 4.0)) {
-    batt_min = ftemp;
-  }
-  EEPROM.get(EE_TAMB_MIN,ftemp);
-  if ((ftemp != 0.00) && (ftemp < 80.0)) {
-    tamb_min = ftemp;
-  }
-  EEPROM.get(EE_TAMB_MAX,ftemp);
-  if (ftemp > 0.0) {
-    tamb_max = ftemp;
-  }
-  #ifdef ECHO_TO_SERIAL  
     Serial.print(F("- Battery Min: "));
     Serial.print(batt_min);
     Serial.println(F(" V"));
@@ -285,7 +279,7 @@ void loop() {
   //============ READ RTC TIME ======================
   DateTime now = RTC.now(); // reads time from the RTC
   sprintf(TimeStamp, "%04d/%02d/%02d %02d:%02d", now.year(), now.month(), now.day(), now.hour(), now.minute());
-  SolarData.time = now.unixtime(); // Redefine as UNIX time long int
+  SolarData.time = now.unixtime(); // Convert time to UNIX time
   //loads the time into a string variable - don’t record seconds in the time stamp because the interrupt to time reading interval is <1s, so seconds are always ’00’  
   #ifdef ECHO_TO_SERIAL
    Serial.print("Current Time: ");

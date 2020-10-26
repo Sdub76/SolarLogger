@@ -67,7 +67,7 @@ void setup() {
   if (EE_addr == 0) {EE_addr = extEE_RDATA_START;} // Protect against empty EEPROM
 
   float ftemp;
-  long ltemp;
+  uint32_t ltemp;
   EEPROM.get(EE_BATT_MIN,ftemp);
   EEPROM.get(EE_BATT_MIN_TIME,ltemp);
   Serial.print("Battery Min: ");

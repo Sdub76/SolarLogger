@@ -28,8 +28,8 @@ void setup () {
     Wire.begin(); // Start the I2C
     RTC.begin();  // Init RTC
     DateTime now = DateTime(__DATE__, __TIME__);
-    TimeSpan shift = 60*60*TZ;
-    DateTime local = now + shift + 7; // Add 7 seconds to account for delta between compile and download
+    TimeSpan tz_shift = 60*60*TZ;
+    DateTime local = now + tz_shift + 8; // Add 7 seconds to account for delta between compile and download
     RTC.adjust(local);  // Time and date are set to date and time on your computer at compiletime
 }
 
