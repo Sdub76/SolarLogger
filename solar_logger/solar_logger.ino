@@ -363,7 +363,7 @@ void loop() {
    }
 
   // Only Record Solar Data between the designated start and stop times to preserve EEPROM space
-  if ((now.hour() > START_HOUR) && (now.hour() < STOP_HOUR)) {
+  if ((now.hour() >= START_HOUR) && (now.hour() < STOP_HOUR)) {
     
     //============ READ SOLAR VOLTAGE =================
     analogReference(DEFAULT);analogRead(SOLAR_ADC_PIN); //always throw away the first reading
