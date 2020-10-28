@@ -3,6 +3,8 @@
 #include <EEPROM.h>                    // Arduino Internal EEPROM library
 #include <SparkFun_External_EEPROM.h>  // https://github.com/sparkfun/SparkFun_External_EEPROM_Arduino_Library
 
+// UNIX time to Excel Time Conversion
+// =(Cell/86400)+DATE(1970,1,1)
 
 //============ INTERNAL EEPROM MAP ==========================
 // 0000 - long(32b) - InternalReferenceConstant
